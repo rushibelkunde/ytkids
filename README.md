@@ -1,36 +1,36 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# ytkids — AI Kids Animation & YouTube Shorts Studio
 
-## Getting Started
+An AI-powered production studio built with Next.js, Google Gemini, Fal.ai (Flux + Kling AI), Edge-TTS, and FFmpeg for generating funny 3D slapstick animated YouTube Shorts and publishing directly to YouTube.
 
-First, run the development server:
+## 🚀 Key Capabilities
+- **Real 3D Character Animation**: Authentic character motion, waddling, dancing, and cartoon physics powered by Fal.ai Kling Image-to-Video (`engine: 'full_ai_video'`).
+- **Viral Slapstick Shorts Format**: High-retention 9:16 vertical video (12–18s) with bold yellow cartoon subtitles elevated above YouTube UI.
+- **YouTube Direct Publisher**: Integrated Google OAuth2 and YouTube Data API v3 for 1-click publishing with automated COPPA "Made for Kids" compliance.
+- **Mascot & Script Studio**: Character workshop and scriptwriting engine powered by Google Gemini with persistent SQLite storage.
+- **Audio & Sound Design**: Neural Edge-TTS voiceover mixed with custom bouncy comedic marimba background music.
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+## 📖 Content Strategy & Playbook
+See [`CONTENT_PLAYBOOK.md`](CONTENT_PLAYBOOK.md) for complete channel guidelines, benchmark references, 3-act comedy structure, and YouTube SEO templates.
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## 🛠️ Quick Start
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+1. **Install Dependencies**:
+   ```bash
+   npm install
+   ```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+2. **Configure Environment Variables** (`.env.local`):
+   ```env
+   GEMINI_API_KEY=your_gemini_api_key
+   FAL_KEY=your_fal_api_key
+   GOOGLE_OAUTH_CLIENT_ID=your_oauth_client_id.apps.googleusercontent.com
+   GOOGLE_OAUTH_CLIENT_SECRET=your_oauth_client_secret
+   ```
 
-## Learn More
+3. **Run Development Server**:
+   ```bash
+   npm run dev
+   ```
 
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+4. **Open Studio**:
+   Navigate to [http://localhost:3000](http://localhost:3000).
