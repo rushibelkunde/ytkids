@@ -36,15 +36,42 @@ These reference videos define the gold standard for pacing, visuals, and comedic
 
 ---
 
-## 3. The Proven 3-Act Shorts Structure (12–18 Seconds)
+## 3. The 4-Beat Viral Spine (12–18 Seconds)
 
 YouTube Shorts algorithm heavily favors **>100% average view duration (loops)**. A 15-second video watched twice delivers a 200% retention score, triggering viral distribution.
 
-| Act | Time | Action | Comedy Beat |
+> **⚠️ KEY UPGRADE**: The old 3-Act structure (Hook → Mishap → Triumph) was too predictable. The 4-Beat Spine adds a **TWIST** beat that makes the content genuinely surprising and rewatchable.
+
+| Beat | Time | What Happens | Why It Works |
 |---|---|---|---|
-| **Act 1: The Hook** | 0s – 5s | Baby & Mascot duo start an energetic, funny dance or silly activity | Immediate visual hook, adorable character design, catchy upbeat movement |
-| **Act 2: The Mishap** | 5s – 10s | Slapstick accident occurs (stepping on soapy bubble, banana peel, funny tumble) | Characters fly mid-air, funny cross-eyed expressions, goofy cartoon slip sound |
-| **Act 3: The Triumph** | 10s – 15s | Bounce back on feet, giant bubble pop celebration, triumphant pose | Victory dance, laughing baby, seamless loop transition back to Act 1 |
+| **HOOK** | 0s – 2s | Open with an impossible/bizarre visual that forces the viewer to STOP scrolling. NOT a dance — something weird, oversized, glowing, or "wrong". | Swipe-away rate is measured in the first 1.5s. Generic dance openings no longer stop the scroll. |
+| **SETUP** | 2s – 6s | Quick context. Characters attempt something. Build micro-tension. Change something visually every 1.5 seconds. | Establishes the "promise" of what the short is about. Fast pacing prevents mid-video drop-off. |
+| **TWIST** | 6s – 12s | **THE KEY BEAT.** Something UNEXPECTED happens — NOT what the setup promised. Cartoon physics. Absurdity. Chain reactions. This is the "wait, what?!" moment. | This is what separates viral from cute. The unpredictability triggers rewatches ("did I catch everything?"). |
+| **LOOP** | 12s – 15s | Quick payoff + seamless visual transition back to Beat 1. The viewer should NOT realize it looped. End frame must visually match the opening frame. | Target: >100% AVD. Kids watch it 3–5 times without swiping away. |
+
+---
+
+## 3B. Visual Continuity & Consistency Rules (CRITICAL)
+
+> **🚨 THE #1 PROBLEM**: Videos feel like separate clips stitched together with abrupt cuts between different animation styles. Every Short MUST feel like ONE continuous, cohesive animation — not a slideshow of disconnected AI generations.
+
+### The "Single Video" Mandate:
+1. **Same Character, Same Look, EVERY Frame**: Characters must look identical across all beats. No style drift, no face morphing, no outfit changes between scenes (unless the story calls for it).
+2. **Continuous Motion Flow**: The end of Beat 1 must visually flow into the start of Beat 2. No hard cuts to entirely different camera angles, lighting, or environments.
+3. **Consistent Environment**: If the video is set in a sunny park, ALL beats must be in the same sunny park with the same lighting, colors, and background elements.
+4. **Unified Color Grading**: All clips must share the same warm, saturated, Pixar-like color palette. Post-production color grading pass is MANDATORY to unify clips.
+5. **Smooth Transitions Only**: Use cross-dissolves (0.3–0.5s) between clips, NEVER hard cuts. Motion-based transitions (spinning, zooming, bouncing) are preferred over visual cuts.
+
+### How to Achieve This:
+- **Frame Chaining**: The LAST frame of Clip A becomes the START frame of Clip B (see Section 5F).
+- **Style Block Prepend**: Every image/video generation prompt must start with the same style block:
+  ```
+  "3D Pixar-style CGI animation, bright warm cinematic sunshine, soft ambient bounce light, 
+  saturated cheerful colors, clean clutter-free background, smooth fluid motion, 
+  consistent character design, [CHARACTER VISUAL DNA]"
+  ```
+- **Character Reference Anchoring**: Always include the character's `visual_dna` from the database in EVERY prompt. Never rely on text alone to describe the character.
+- **Single Session Generation**: When possible, generate all beats in sequence using the same model session/seed to minimize style drift.
 
 ---
 
@@ -82,6 +109,13 @@ When generating videos in this codebase:
   - `duration`: `'5'` (seconds)
   - `prompt`: Must describe active physical movements (e.g. *"fluffy yellow duck flapping wings and waddling in sneakers, baby jumping and dancing, smooth 3D cartoon animation, fluid motion"*).
 
+#### ⚠️ Consistency Rules for Kling Generation:
+- **ALWAYS prepend the style block** to every prompt: `"3D Pixar-style CGI animation, bright warm cinematic lighting, saturated cheerful colors, smooth fluid motion, [CHARACTER visual_dna]..."`
+- **ALWAYS include negative prompt elements** (if supported): `"distorted face, inconsistent clothing, color shift, morphing, extra limbs, different art style, 2D flat, realistic photo"`
+- **Frame Chaining is MANDATORY**: Extract the last frame of each generated clip and use it as the `image_url` input for the next clip's generation. This prevents the character from "drifting" between scenes.
+- **Limit motion intensity**: If characters morph or face-melt during high-action scenes, reduce the described motion and use shorter 3-second clips stitched together.
+- **Same seed/session**: When possible, maintain the same generation seed across all clips in a single video.
+
 ### D. Audio & Sound Design:
 - **Narration**: Microsoft Edge-TTS (`en-US-AnaNeural`) with short, punchy comedic voiceover lines (< 4 seconds each).
 - **Background Music**: Bouncy marimba/accordion toy comedy music (`data/audio/comedy_bouncy_bgm.mp3`).
@@ -91,6 +125,30 @@ When generating videos in this codebase:
 - Font: Bold cartoon styling.
 - Colors: **Yellow text** (`fontcolor=yellow`) with thick **black outline** (`borderw=4:bordercolor=black`).
 - Position: Centered horizontally, elevated above the bottom YouTube UI area (`y=h-240`).
+
+### F. Scene Transition & Continuity Pipeline (NEW — CRITICAL):
+
+To ensure the final video feels like ONE continuous animation, not a slideshow:
+
+1. **Frame Chaining**: After each Kling clip is generated:
+   - Extract the **last frame** using ffmpeg: `ffmpeg -sseof -0.1 -i clip_N.mp4 -vframes 1 last_frame_N.png`
+   - Use `last_frame_N.png` as the `image_url` input for generating `clip_N+1`
+   - This creates visual continuity — same characters, same poses, same environment carry over
+
+2. **Cross-Dissolve Stitching**: When assembling clips in ffmpeg:
+   - Use `xfade=transition=fade:duration=0.4` between clips instead of hard concat
+   - This smooths out any remaining micro-inconsistencies between clip boundaries
+
+3. **Color Unification Pass**: After stitching all clips:
+   - Apply a consistent color grade filter: `eq=brightness=0.04:saturation=1.3,hue=h=5`
+   - This forces all clips into the same warm, saturated look even if individual clips drifted slightly
+
+4. **Quality Checklist Before Export**:
+   - [ ] Characters look the same in frame 1 and frame last?
+   - [ ] No abrupt lighting changes between beats?
+   - [ ] No character face morphing or outfit changes?
+   - [ ] Transitions feel smooth, not jarring?
+   - [ ] Does the video feel like ONE continuous scene?
 
 ---
 

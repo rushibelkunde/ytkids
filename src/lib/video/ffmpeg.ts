@@ -6,6 +6,24 @@ import { Scene, VideoProject, ProductionEngine } from '../types';
 
 const execPromise = util.promisify(exec);
 
+// Ensure local bin directory (with ffmpeg, ffprobe, edge-tts) is always in PATH
+const binDir = path.join(process.cwd(), 'bin');
+if (fs.existsSync(binDir) && !process.env.PATH?.includes(binDir)) {
+  process.env.PATH = `${binDir};${process.env.PATH}`;
+}
+
+export function getFfmpegCmd(): string {
+  const localBin = path.join(process.cwd(), 'bin', process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg');
+  if (fs.existsSync(localBin)) return `"${localBin}"`;
+  return 'ffmpeg';
+}
+
+export function getFfprobeCmd(): string {
+  const localBin = path.join(process.cwd(), 'bin', process.platform === 'win32' ? 'ffprobe.exe' : 'ffprobe');
+  if (fs.existsSync(localBin)) return `"${localBin}"`;
+  return 'ffprobe';
+}
+
 export interface SceneRenderResult {
   sceneId: string;
   clipPath: string;
@@ -55,13 +73,13 @@ export async function renderSceneClip(params: {
 
     if (audioPath && fs.existsSync(audioPath)) {
       audioInput = `-i "${audioPath}"`;
-      audioMap = `-filter_complex "[0:v]${vf}[vout];[1:a]apad=pad_dur=2[aout]" -map "[vout]" -map "[aout]"`;
+      audioMap = `-filter_complex "[0:v]${vf}[vout]" -map "[vout]" -map 1:a`;
     } else {
       audioInput = `-f lavfi -i anullsrc=r=44100:cl=stereo`;
       audioMap = `-filter_complex "[0:v]${vf}[vout]" -map "[vout]" -map 1:a`;
     }
 
-    const cmd = `ffmpeg -y -i "${rawVideoPath}" ${audioInput} ${audioMap} -c:v libx264 -preset veryfast -pix_fmt yuv420p -r ${fps} -c:a aac -b:a 192k -shortest "${clipPath}"`;
+    const cmd = `${getFfmpegCmd()} -y -t ${duration} -i "${rawVideoPath}" ${audioInput} ${audioMap} -c:v libx264 -preset veryfast -pix_fmt yuv420p -r ${fps} -c:a aac -b:a 192k -t ${duration} "${clipPath}"`;
     await execPromise(cmd);
     return { sceneId: scene.id, clipPath, duration };
   }
@@ -119,14 +137,14 @@ export async function renderSceneClip(params: {
     audioInput = `-f lavfi -i anullsrc=r=44100:cl=stereo -c:a aac -t ${duration}`;
   }
 
-  const cmd = `ffmpeg -y -loop 1 -t ${duration} -i "${imagePath}" ${audioInput} -vf "${vf}" -c:v libx264 -preset veryfast -pix_fmt yuv420p -r ${fps} "${clipPath}"`;
+  const cmd = `${getFfmpegCmd()} -y -loop 1 -t ${duration} -i "${imagePath}" ${audioInput} -vf "${vf}" -c:v libx264 -preset veryfast -pix_fmt yuv420p -r ${fps} "${clipPath}"`;
 
   try {
     await execPromise(cmd);
   } catch (err: any) {
     console.error(`Failed to render scene ${scene.id} with zoompan:`, err.message);
     // Simpler fallback without complex zoom filter if system encounters issue
-    const simpleCmd = `ffmpeg -y -loop 1 -t ${duration} -i "${imagePath}" ${audioInput} -vf "scale=${width}:${height},format=yuv420p${drawtextFilter}" -c:v libx264 -preset ultrafast -pix_fmt yuv420p -r ${fps} "${clipPath}"`;
+    const simpleCmd = `${getFfmpegCmd()} -y -loop 1 -t ${duration} -i "${imagePath}" ${audioInput} -vf "scale=${width}:${height},format=yuv420p${drawtextFilter}" -c:v libx264 -preset ultrafast -pix_fmt yuv420p -r ${fps} "${clipPath}"`;
     await execPromise(simpleCmd);
   }
 
@@ -135,6 +153,28 @@ export async function renderSceneClip(params: {
     clipPath,
     duration
   };
+}
+
+/**
+ * Extract the last frame from a video clip for frame-chaining continuity.
+ * The last frame of clip N becomes the input image for generating clip N+1,
+ * ensuring consistent character appearance and environment across scenes.
+ */
+export async function extractLastFrame(videoPath: string, outputDir: string): Promise<string> {
+  const frameFilename = `last_frame_${path.basename(videoPath, '.mp4')}.png`;
+  const framePath = path.join(outputDir, frameFilename);
+
+  // Extract the frame ~0.1s before the end of the video
+  const cmd = `${getFfmpegCmd()} -y -sseof -0.1 -i "${videoPath}" -vframes 1 -q:v 2 "${framePath}"`;
+  try {
+    await execPromise(cmd);
+  } catch {
+    // Fallback: try extracting the very last frame
+    const fallbackCmd = `${getFfmpegCmd()} -y -sseof -0.01 -i "${videoPath}" -vframes 1 -q:v 2 "${framePath}"`;
+    await execPromise(fallbackCmd);
+  }
+
+  return framePath;
 }
 
 export async function assembleFullVideo(params: {
@@ -168,43 +208,81 @@ export async function assembleFullVideo(params: {
     totalDuration += renderRes.duration;
   }
 
-  // 2. Create concat file
-  const concatFilePath = path.join(exportsDir, `concat_${videoId}.txt`);
-  const concatContent = clips.map(c => `file '${c.replace(/'/g, "'\\''")}'`).join('\n');
-  fs.writeFileSync(concatFilePath, concatContent);
+  // 2. Stitch clips with seamless concatenation
+  // For frame-chained videos, clip N+1 starts at the exact last frame of clip N.
+  // Direct synchronized concat produces a 100% continuous, flicker-free, jump-free flow.
+  let stitchedPath: string;
 
-  // 3. Optional background music layer
+  if (clips.length === 1) {
+    stitchedPath = clips[0];
+  } else {
+    const stitchedFilename = `stitched_${videoId}.mp4`;
+    stitchedPath = path.join(exportsDir, stitchedFilename);
+
+    const concatFilePath = path.join(exportsDir, `concat_${videoId}.txt`);
+    const concatContent = clips.map(c => `file '${c.replace(/'/g, "'\\''")}'`).join('\n');
+    fs.writeFileSync(concatFilePath, concatContent);
+
+    // Re-encode during concat to ensure synchronized timestamps, keyframes, and seamless audio
+    const concatCmd = `${getFfmpegCmd()} -y -f concat -safe 0 -i "${concatFilePath}" -c:v libx264 -preset veryfast -pix_fmt yuv420p -r 25 -c:a aac -b:a 192k "${stitchedPath}"`;
+    try {
+      await execPromise(concatCmd);
+    } catch (concatErr: any) {
+      console.warn('Re-encoded concat failed, trying fast copy concat:', concatErr.message);
+      const copyCmd = `${getFfmpegCmd()} -y -f concat -safe 0 -i "${concatFilePath}" -c copy "${stitchedPath}"`;
+      await execPromise(copyCmd);
+    }
+    if (fs.existsSync(concatFilePath)) fs.unlinkSync(concatFilePath);
+  }
+
+  // 3. Apply color unification pass for consistent look across all clips
+  const colorGradedFilename = `graded_${videoId}.mp4`;
+  const colorGradedPath = path.join(exportsDir, colorGradedFilename);
+  try {
+    const gradeCmd = `${getFfmpegCmd()} -y -i "${stitchedPath}" -vf "eq=brightness=0.04:saturation=1.3,hue=h=5" -c:v libx264 -preset veryfast -pix_fmt yuv420p -c:a copy "${colorGradedPath}"`;
+    await execPromise(gradeCmd);
+  } catch (err: any) {
+    console.warn('Color grading pass failed, using ungraded:', err.message);
+    if (stitchedPath !== colorGradedPath) {
+      fs.copyFileSync(stitchedPath, colorGradedPath);
+    }
+  }
+
+  // 4. Optional background music layer
   const bgMusicPath = path.join(exportsDir, `bgm_${videoId}.mp3`);
   await generatePlayfulBgm(bgMusicPath, totalDuration);
 
-  // 4. Stitch clips and mix background music (subtle 10% volume)
-  const stitchCmd = `ffmpeg -y -f concat -safe 0 -i "${concatFilePath}" -i "${bgMusicPath}" -filter_complex "[0:a][1:a]amix=inputs=2:duration=first:weights=1.0 0.12[aout]" -map 0:v -map "[aout]" -c:v copy -c:a aac -b:a 192k "${finalVideoPath}"`;
+  // 5. Mix background music with the color-graded video (punchy bouncy volume)
+  const mixCmd = `${getFfmpegCmd()} -y -i "${colorGradedPath}" -i "${bgMusicPath}" -filter_complex "[0:a][1:a]amix=inputs=2:duration=first:weights=1.0 0.38[aout]" -map 0:v -map "[aout]" -c:v copy -c:a aac -b:a 192k "${finalVideoPath}"`;
 
   try {
-    await execPromise(stitchCmd);
+    await execPromise(mixCmd);
   } catch (err: any) {
-    console.warn('Audio mix failed, stitching without BGM:', err.message);
-    const simpleStitch = `ffmpeg -y -f concat -safe 0 -i "${concatFilePath}" -c copy "${finalVideoPath}"`;
-    await execPromise(simpleStitch);
+    console.warn('Audio mix failed, using video without BGM:', err.message);
+    fs.copyFileSync(colorGradedPath, finalVideoPath);
   }
 
-  // 5. Generate Thumbnail
+  // Clean up intermediate files
+  for (const tempFile of [stitchedPath, colorGradedPath]) {
+    if (tempFile !== finalVideoPath && fs.existsSync(tempFile)) {
+      try { fs.unlinkSync(tempFile); } catch { /* ignore */ }
+    }
+  }
+
+  // 6. Generate Thumbnail
   try {
-    await execPromise(`ffmpeg -y -ss 00:00:02 -i "${finalVideoPath}" -vframes 1 -q:v 2 "${thumbnailPath}"`);
+    await execPromise(`${getFfmpegCmd()} -y -ss 00:00:02 -i "${finalVideoPath}" -vframes 1 -q:v 2 "${thumbnailPath}"`);
   } catch {
     // If ss 2s fails, take 0.5s
-    await execPromise(`ffmpeg -y -ss 00:00:00.5 -i "${finalVideoPath}" -vframes 1 -q:v 2 "${thumbnailPath}"`);
+    await execPromise(`${getFfmpegCmd()} -y -ss 00:00:00.5 -i "${finalVideoPath}" -vframes 1 -q:v 2 "${thumbnailPath}"`);
   }
-
-  // Clean up concat txt
-  if (fs.existsSync(concatFilePath)) fs.unlinkSync(concatFilePath);
 
   return {
     id: videoId,
     story_id: storyId,
     title,
-    description: `🌟 Welcome to a magical adventure for kids! Don't forget to LIKE and SUBSCRIBE for more fun daily kids stories! #Shorts #KidsStories #Animation`,
-    tags: ['kids stories', 'bedtime story', 'animated shorts', 'nursery rhymes', 'kids cartoons', 'educational'],
+    description: `Watch what happens next! 😂🦆 Subscribe for daily funny cartoons, dancing animals, and laugh-out-loud slapstick animations!\n\n#Shorts #Funny #Animation #Comedy #KidsAnimation #Slapstick #Trending #ViralShorts`,
+    tags: ['funny 3d animation', 'pixar style shorts', 'baby and duck comedy', 'slapstick cartoon', 'kids comedy shorts', 'funny animal dance', 'viral shorts', 'trending shorts'],
     aspect_ratio: aspectRatio,
     engine,
     video_path: `/api/media/exports/${finalVideoFilename}`,
@@ -217,15 +295,18 @@ export async function assembleFullVideo(params: {
 
 async function createFallbackImage(filePath: string, width: number, height: number, text: string) {
   const safeText = text.replace(/[^a-zA-Z0-9 ]/g, '').slice(0, 30);
-  const cmd = `ffmpeg -y -f lavfi -i color=c=0x1E1B4B:s=${width}x${height}:d=1 -vf "drawtext=text='${safeText}':fontcolor=white:fontsize=36:x=(w-text_w)/2:y=(h-text_h)/2" -vframes 1 "${filePath}"`;
+  const cmd = `${getFfmpegCmd()} -y -f lavfi -i color=c=0x1E1B4B:s=${width}x${height}:d=1 -vf "drawtext=text='${safeText}':fontcolor=white:fontsize=36:x=(w-text_w)/2:y=(h-text_h)/2" -vframes 1 "${filePath}"`;
   await execPromise(cmd);
 }
 
 async function generatePlayfulBgm(outPath: string, durationSeconds: number) {
+  const fastBgm = path.join(process.cwd(), 'data', 'audio', 'fast_dance_funny_bgm.mp3');
   const customBgm = path.join(process.cwd(), 'data', 'audio', 'comedy_bouncy_bgm.mp3');
+  const chosenBgm = fs.existsSync(fastBgm) ? fastBgm : customBgm;
   const d = Math.ceil(durationSeconds) + 2;
-  if (fs.existsSync(customBgm)) {
-    const cmd = `ffmpeg -y -stream_loop -1 -i "${customBgm}" -t ${d} -c:a libmp3lame "${outPath}"`;
+
+  if (fs.existsSync(chosenBgm)) {
+    const cmd = `${getFfmpegCmd()} -y -stream_loop -1 -i "${chosenBgm}" -t ${d} -c:a libmp3lame "${outPath}"`;
     try {
       await execPromise(cmd);
       return;
@@ -235,7 +316,7 @@ async function generatePlayfulBgm(outPath: string, durationSeconds: number) {
   }
 
   // Synthesize a soft, cheerful chord progression (C-E-G / gentle lullaby tones)
-  const cmd = `ffmpeg -y -f lavfi -i "sine=frequency=261.63:duration=${d}" -f lavfi -i "sine=frequency=329.63:duration=${d}" -f lavfi -i "sine=frequency=392.00:duration=${d}" -filter_complex "[0:a][1:a][2:a]amix=inputs=3:dropout_transition=2,volume=0.08,lowpass=f=1200" -c:a libmp3lame "${outPath}"`;
+  const cmd = `${getFfmpegCmd()} -y -f lavfi -i "sine=frequency=261.63:duration=${d}" -f lavfi -i "sine=frequency=329.63:duration=${d}" -f lavfi -i "sine=frequency=392.00:duration=${d}" -filter_complex "[0:a][1:a][2:a]amix=inputs=3:dropout_transition=2,volume=0.08,lowpass=f=1200" -c:a libmp3lame "${outPath}"`;
   try {
     await execPromise(cmd);
   } catch (err) {

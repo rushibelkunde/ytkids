@@ -102,6 +102,13 @@ export const CONTENT_NICHES: NicheOption[] = [
     icon: '💡',
     hook: 'Did you know? Fun science facts about space, oceans, and dinosaurs',
     suggestedDuration: 45
+  },
+  {
+    id: 'slapstick_comedy',
+    title: 'Slapstick Comedy Shorts',
+    icon: '🤣',
+    hook: 'Hilarious physical comedy with impossible physics, giant vs tiny surprises, and chain-reaction chaos',
+    suggestedDuration: 15
   }
 ];
 
@@ -173,27 +180,33 @@ export const SUGGESTED_VOICES = [
 
 export const STARTER_PROMPTS = [
   {
-    title: 'Pip the Squirrel Shares His Acorns',
-    niche: 'moral_story' as ContentNiche,
-    prompt: 'Pip the tiny red squirrel finds three giant golden acorns in the autumn woods. His friend Barnaby the hedgehog is hungry, and Pip learns why sharing makes treats taste double as sweet.',
+    title: 'Ducky Found a GIANT Sneaker! 🦆👟',
+    niche: 'slapstick_comedy' as ContentNiche,
+    prompt: 'Goofy Ducky finds a sneaker as big as a house in the park. Baby Leo tries to tie the giant lace but it wraps around both of them and they spin like a top. Hilarious impossible physics, slapstick comedy.',
     style: '3d_pixar' as VisualStyle
   },
   {
-    title: 'Counting 5 Bouncing Baby Bunnies',
-    niche: 'educational' as ContentNiche,
-    prompt: 'Five colorful fluffy bunnies hop through a magical strawberry patch. One by one, they find shiny hidden surprises, counting from 1 to 5 with bright cheerful celebration!',
+    title: "Baby's Magic Bubble Goes WRONG! 👶💥",
+    niche: 'slapstick_comedy' as ContentNiche,
+    prompt: 'Baby Leo blows a bubble that grows enormous and iridescent. Instead of popping, the bubble SWALLOWS Goofy Ducky whole. Baby sees Ducky floating inside the bubble, flapping his wings in panic. Chain-reaction slapstick comedy.',
     style: '3d_pixar' as VisualStyle
   },
   {
-    title: 'Why Do Fireflies Glow in the Dark?',
-    niche: 'fun_facts' as ContentNiche,
-    prompt: 'Lumi the little glowing firefly explains to a curious baby owl how fireflies use their magic glow-bellies to talk and play hide-and-seek at night.',
-    style: 'anime_ghibli' as VisualStyle
+    title: 'What\'s Inside the Glowing Egg?! 🥚✨',
+    niche: 'slapstick_comedy' as ContentNiche,
+    prompt: 'Ducky and Baby find a pulsing, glowing rainbow egg in the park. They poke it nervously. It cracks open and a tiny baby version of Ducky wearing oversized sunglasses pops out and does a miniature dance. Mystery reveal with funny surprise.',
+    style: '3d_pixar' as VisualStyle
   },
   {
-    title: 'Sleepy Bear Goes to Dreamland',
-    niche: 'bedtime' as ContentNiche,
-    prompt: 'Barnaby the fluffy brown cub yawns under a sky of marshmallow clouds. The stars tuck him in with a silver blanket as he drifts happily to sleep.',
-    style: '2d_storybook' as VisualStyle
+    title: "Ducky Tries Baby's Dance... FAILS! 🦆😂",
+    niche: 'slapstick_comedy' as ContentNiche,
+    prompt: 'Baby Leo does a smooth moonwalk dance move. Goofy Ducky tries to copy it but slides on a banana peel and accidentally does an incredible breakdance spin. Who danced better? Copycat dance battle with funny fail.',
+    style: '3d_pixar' as VisualStyle
+  },
+  {
+    title: 'The Ice Cream Tower of DOOM! 🍦💀',
+    niche: 'slapstick_comedy' as ContentNiche,
+    prompt: 'Baby and Ducky build an impossibly tall ice cream tower. It wobbles in the wind, then topples over. Each scoop hits a different character. The last scoop catapults Baby into Ducky\'s arms. Food chaos slapstick comedy.',
+    style: '3d_pixar' as VisualStyle
   }
 ];

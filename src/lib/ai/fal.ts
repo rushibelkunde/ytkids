@@ -207,6 +207,7 @@ export async function generateSceneVideo(params: {
   sceneId: string;
   aspectRatio?: '9:16' | '16:9';
   duration?: '5' | '10';
+  isChained?: boolean;
 }): Promise<FalVideoResult> {
   const settings = DB.getSettings();
   const falKey = settings.fal_key || process.env.FAL_KEY || process.env.FAL_AI_API_KEY;
@@ -218,6 +219,12 @@ export async function generateSceneVideo(params: {
   if (!falKey) {
     throw new Error('fal.ai key not configured');
   }
+
+  // When continuing from the previous scene's last frame (isChained: true):
+  // Focus purely on continuous motion from the starting frame to prevent Kling from altering character DNA.
+  const styledPrompt = params.isChained
+    ? `Continuous animation from current pose, seamless natural motion, identical character features and clothes: ${params.prompt}, 3D Pixar CGI animation, consistent style, smooth physics`
+    : `3D Pixar-style CGI animation, bright warm cinematic lighting, saturated cheerful colors, smooth fluid motion, consistent character design, ${params.prompt}`;
 
   // 1. If imageUrl is local path, upload to fal storage
   let cdnUrl = params.imageUrl;
@@ -234,7 +241,7 @@ export async function generateSceneVideo(params: {
       'Content-Type': 'application/json'
     },
     body: JSON.stringify({
-      prompt: params.prompt,
+      prompt: styledPrompt,
       image_url: cdnUrl,
       duration: params.duration || '5',
       aspect_ratio: params.aspectRatio || '9:16'

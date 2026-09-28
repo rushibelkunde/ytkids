@@ -24,6 +24,16 @@ export function getOAuth2Client() {
     });
   }
 
+  // Automatically save refreshed tokens whenever googleapis refreshes them
+  oauth2Client.on('tokens', (tokens) => {
+    if (tokens.access_token) {
+      DB.updateSettings({
+        youtube_access_token: tokens.access_token,
+        ...(tokens.refresh_token ? { youtube_refresh_token: tokens.refresh_token } : {})
+      });
+    }
+  });
+
   return oauth2Client;
 }
 
@@ -89,10 +99,12 @@ export async function uploadVideoToYouTube(params: {
     throw new Error(`Video with ID ${videoId} not found in database`);
   }
 
-  const oauth2Client = getOAuth2Client();
   const settings = DB.getSettings();
   if (!settings.youtube_refresh_token && !process.env.YOUTUBE_REFRESH_TOKEN) {
-    throw new Error('YouTube channel is not connected. Please authorize your channel first.');
+    const err: any = new Error('YouTube channel is not connected. Please authorize your channel first.');
+    err.needsAuth = true;
+    err.authUrl = generateYouTubeAuthUrl();
+    throw err;
   }
 
   const videoFilename = path.basename(video.video_path || '');
@@ -106,66 +118,104 @@ export async function uploadVideoToYouTube(params: {
   const finalDesc = description || video.description;
   const finalTags = tags || video.tags;
 
+  const oauth2Client = getOAuth2Client();
+
+  // Validate or proactively refresh access token
+  try {
+    const tokenRes = await oauth2Client.getAccessToken();
+    if (!tokenRes.token) {
+      throw new Error('No access token returned from Google OAuth');
+    }
+    DB.updateSettings({ youtube_access_token: tokenRes.token });
+  } catch (refreshErr: any) {
+    console.error('YouTube OAuth token refresh error:', refreshErr.message);
+    // Invalidate dead tokens so UI accurately prompts user
+    DB.updateSettings({
+      youtube_access_token: undefined,
+      youtube_refresh_token: undefined
+    });
+    const authError: any = new Error('YouTube authorization has expired. Please re-authorize your channel.');
+    authError.needsAuth = true;
+    authError.authUrl = generateYouTubeAuthUrl();
+    throw authError;
+  }
+
   const youtube = google.youtube({ version: 'v3', auth: oauth2Client });
 
-  // 1. Upload Video
-  const res = await youtube.videos.insert({
-    part: ['snippet', 'status'],
-    requestBody: {
-      snippet: {
-        title: finalTitle,
-        description: finalDesc,
-        tags: finalTags,
-        categoryId: '24', // Entertainment
-        defaultLanguage: 'en',
-        defaultAudioLanguage: 'en'
+  try {
+    // 1. Upload Video
+    const res = await youtube.videos.insert({
+      part: ['snippet', 'status'],
+      requestBody: {
+        snippet: {
+          title: finalTitle,
+          description: finalDesc,
+          tags: finalTags,
+          categoryId: '24', // Entertainment
+          defaultLanguage: 'en',
+          defaultAudioLanguage: 'en'
+        },
+        status: {
+          privacyStatus: privacyStatus,
+          madeForKids: true,
+          selfDeclaredMadeForKids: true
+        }
       },
-      status: {
-        privacyStatus: privacyStatus,
-        madeForKids: true,
-        selfDeclaredMadeForKids: true
+      media: {
+        body: fs.createReadStream(videoFilePath)
       }
-    },
-    media: {
-      body: fs.createReadStream(videoFilePath)
+    });
+
+    const ytId = res.data.id;
+    if (!ytId) {
+      throw new Error('YouTube API did not return a video ID');
     }
-  });
 
-  const ytId = res.data.id;
-  if (!ytId) {
-    throw new Error('YouTube API did not return a video ID');
-  }
-
-  // 2. Upload Custom Thumbnail if available
-  if (video.thumbnail_path) {
-    try {
-      const thumbFilename = path.basename(video.thumbnail_path);
-      const thumbPath = path.join(process.cwd(), 'data', 'exports', thumbFilename);
-      if (fs.existsSync(thumbPath)) {
-        await youtube.thumbnails.set({
-          videoId: ytId,
-          media: {
-            body: fs.createReadStream(thumbPath)
-          }
-        });
+    // 2. Upload Custom Thumbnail if available
+    if (video.thumbnail_path) {
+      try {
+        const thumbFilename = path.basename(video.thumbnail_path);
+        const thumbPath = path.join(process.cwd(), 'data', 'exports', thumbFilename);
+        if (fs.existsSync(thumbPath)) {
+          await youtube.thumbnails.set({
+            videoId: ytId,
+            media: {
+              body: fs.createReadStream(thumbPath)
+            }
+          });
+        }
+      } catch (thumbErr) {
+        console.warn('Could not set custom thumbnail (requires verified channel phone number):', thumbErr);
       }
-    } catch (thumbErr) {
-      console.warn('Could not set custom thumbnail (requires verified channel phone number):', thumbErr);
     }
+
+    // 3. Update database
+    video.youtube_video_id = ytId;
+    video.youtube_status = privacyStatus;
+    video.title = finalTitle;
+    video.description = finalDesc;
+    video.tags = finalTags;
+    DB.saveVideo(video);
+
+    return {
+      success: true,
+      youtubeVideoId: ytId,
+      url: `https://youtube.com/shorts/${ytId}`,
+      title: finalTitle
+    };
+  } catch (apiErr: any) {
+    const errMsg = apiErr?.message || '';
+    const status = apiErr?.status || apiErr?.response?.status;
+    if (status === 401 || errMsg.includes('invalid_grant') || errMsg.includes('invalid authentication credentials')) {
+      DB.updateSettings({
+        youtube_access_token: undefined,
+        youtube_refresh_token: undefined
+      });
+      const authError: any = new Error('YouTube session expired or revoked. Please re-authorize your channel.');
+      authError.needsAuth = true;
+      authError.authUrl = generateYouTubeAuthUrl();
+      throw authError;
+    }
+    throw apiErr;
   }
-
-  // 3. Update database
-  video.youtube_video_id = ytId;
-  video.youtube_status = privacyStatus;
-  video.title = finalTitle;
-  video.description = finalDesc;
-  video.tags = finalTags;
-  DB.saveVideo(video);
-
-  return {
-    success: true,
-    youtubeVideoId: ytId,
-    url: `https://youtube.com/shorts/${ytId}`,
-    title: finalTitle
-  };
 }

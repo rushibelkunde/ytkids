@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { uploadVideoToYouTube } from '@/lib/youtube';
+import { uploadVideoToYouTube, generateYouTubeAuthUrl } from '@/lib/youtube';
 
 export async function POST(req: NextRequest) {
   try {
@@ -19,12 +19,18 @@ export async function POST(req: NextRequest) {
     });
 
     return NextResponse.json({
-      success: true,
       message: 'Video successfully published to YouTube Shorts!',
       ...result
     });
   } catch (err: any) {
     console.error('YouTube upload error:', err);
+    if (err.needsAuth) {
+      return NextResponse.json({
+        needsAuth: true,
+        error: err.message,
+        authUrl: err.authUrl || generateYouTubeAuthUrl()
+      }, { status: 401 });
+    }
     return NextResponse.json({ 
       error: err.message || 'Failed to upload video to YouTube',
       details: err.response?.data?.error?.message || err.message

@@ -6,6 +6,12 @@ import { DB } from '../db';
 
 const execPromise = util.promisify(exec);
 
+// Ensure local bin directory is in PATH
+const binDir = path.join(process.cwd(), 'bin');
+if (fs.existsSync(binDir) && !process.env.PATH?.includes(binDir)) {
+  process.env.PATH = `${binDir};${process.env.PATH}`;
+}
+
 export interface TTSResult {
   audioPath: string; // Absolute path on disk
   audioUrl: string;  // Public URL served by Next.js
@@ -35,13 +41,33 @@ export async function generateSpeech(text: string, voiceId?: string, sceneId?: s
   }
 
   // Use Edge-TTS (Free, Neural, high-quality)
-  const edgeTtsCmd = `~/.local/bin/edge-tts --voice "${selectedVoice}" --text "${text.replace(/"/g, '\\"')}" --write-media "${outPath}"`;
-  await execPromise(edgeTtsCmd);
+  const tempTextPath = path.join(audioDir, `temp_${Date.now()}_${Math.random().toString(36).slice(2, 6)}.txt`);
+  fs.writeFileSync(tempTextPath, text, 'utf-8');
+
+  const localBin = path.join(process.cwd(), 'bin', process.platform === 'win32' ? 'edge-tts.exe' : 'edge-tts');
+  const edgeTtsCmd = fs.existsSync(localBin)
+    ? `"${localBin}" --voice "${selectedVoice}" --file "${tempTextPath}" --write-media "${outPath}"`
+    : `python -m edge_tts --voice "${selectedVoice}" --file "${tempTextPath}" --write-media "${outPath}"`;
+
+  try {
+    await execPromise(edgeTtsCmd);
+  } catch (ttsErr: any) {
+    try {
+      await execPromise(`python -m edge_tts --voice "${selectedVoice}" --file "${tempTextPath}" --write-media "${outPath}"`);
+    } catch {
+      await execPromise(`edge-tts --voice "${selectedVoice}" --file "${tempTextPath}" --write-media "${outPath}"`);
+    }
+  } finally {
+    if (fs.existsSync(tempTextPath)) {
+      try { fs.unlinkSync(tempTextPath); } catch {}
+    }
+  }
 
   // Measure exact duration using ffprobe
   let duration = 6.0;
   try {
-    const { stdout } = await execPromise(`ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${outPath}"`);
+    const { getFfprobeCmd } = await import('../video/ffmpeg');
+    const { stdout } = await execPromise(`${getFfprobeCmd()} -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${outPath}"`);
     const parsed = parseFloat(stdout.trim());
     if (!isNaN(parsed) && parsed > 0) {
       duration = parsed;

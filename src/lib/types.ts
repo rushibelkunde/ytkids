@@ -4,7 +4,8 @@ export type ContentNiche =
   | 'bedtime' 
   | 'nursery_rhyme' 
   | 'adventure' 
-  | 'fun_facts';
+  | 'fun_facts'
+  | 'slapstick_comedy';
 
 export type TargetAgeGroup = 
   | 'toddler'   // 2-4 years
@@ -80,7 +81,7 @@ export interface VideoProject {
   thumbnail_path?: string;
   duration_seconds: number;
   youtube_video_id?: string;
-  youtube_status?: 'draft' | 'uploaded' | 'public';
+  youtube_status?: 'draft' | 'uploaded' | 'public' | 'unlisted' | 'private';
   created_at: string;
 }
 

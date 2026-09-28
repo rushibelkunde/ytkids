@@ -49,6 +49,13 @@ export async function POST(req: NextRequest) {
     }, { status: 400 });
   } catch (err: any) {
     console.error('YouTube API route error:', err);
+    if (err.needsAuth) {
+      return NextResponse.json({
+        needsAuth: true,
+        error: err.message,
+        authUrl: err.authUrl || generateYouTubeAuthUrl()
+      }, { status: 401 });
+    }
     return NextResponse.json({ 
       error: err.message,
       details: err.response?.data?.error?.message || err.message 

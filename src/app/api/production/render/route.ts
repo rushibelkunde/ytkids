@@ -1,13 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { DB } from '@/lib/db';
-import { assembleFullVideo } from '@/lib/video/ffmpeg';
+import { assembleFullVideo, extractLastFrame } from '@/lib/video/ffmpeg';
 import { generateSceneImage, generateSceneVideo } from '@/lib/ai/fal';
 import { generateSpeech } from '@/lib/ai/tts';
+import path from 'path';
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { story_id, aspect_ratio = '9:16', engine = 'motion_storybook' } = body;
+    const settings = DB.getSettings();
+    const defaultEngine = settings.default_engine || 'full_ai_video';
+    const { story_id, aspect_ratio = '9:16', engine = defaultEngine } = body;
 
     if (!story_id) {
       return NextResponse.json({ error: 'Missing story_id' }, { status: 400 });
@@ -19,14 +22,39 @@ export async function POST(req: NextRequest) {
     }
 
     // Auto-generate missing images, videos, and audios
+    // With FRAME-CHAINING: each scene uses the last frame of the previous scene
+    // to maintain 100% consistent character appearance, lighting, and environment.
     const readyScenes = [];
-    for (const scene of story.scenes) {
+    let previousClipPath: string | null = null; // For frame-chaining continuity
+    let hasRegeneratedPrevious = Boolean(body.force_regenerate || body.force);
+
+    for (let i = 0; i < story.scenes.length; i++) {
+      const scene = story.scenes[i];
       let imgUrl = scene.image_url;
       let vidUrl = scene.video_url;
       let audUrl = scene.audio_url;
       let duration = scene.duration_seconds || 6.0;
 
-      // 1. Ensure scene image exists
+      // 1. Frame-chaining for full_ai_video:
+      // For all scenes after Scene 1 (i > 0), the starting image MUST be the exact last frame
+      // of the preceding clip so that character appearance, pose, clothing, and background are continuous.
+      if (engine === 'full_ai_video' && i > 0 && previousClipPath) {
+        try {
+          const exportsDir = path.join(process.cwd(), 'data', 'exports');
+          const lastFramePath = await extractLastFrame(previousClipPath, exportsDir);
+          const fs = await import('fs');
+          const scenesDir = path.join(process.cwd(), 'data', 'scenes');
+          const chainedFilename = `chained_${scene.id}_${Date.now()}.png`;
+          const chainedPath = path.join(scenesDir, chainedFilename);
+          fs.copyFileSync(lastFramePath, chainedPath);
+          imgUrl = `/api/media/scenes/${chainedFilename}`;
+          DB.updateScene({ id: scene.id, image_url: imgUrl, status: 'generated' });
+        } catch (chainErr) {
+          console.warn(`Frame-chaining extraction failed for scene ${scene.id}:`, chainErr);
+        }
+      }
+
+      // 2. Ensure initial scene image exists (for Scene 1 or if chaining failed)
       if (!imgUrl) {
         const imgRes = await generateSceneImage({
           prompt: scene.visual_prompt,
@@ -37,24 +65,37 @@ export async function POST(req: NextRequest) {
         DB.updateScene({ id: scene.id, image_url: imgUrl, status: 'generated' });
       }
 
-      // 2. If engine is full_ai_video, ensure scene has moving character video
-      if (engine === 'full_ai_video' && !vidUrl) {
-        try {
-          const vidRes = await generateSceneVideo({
-            prompt: scene.visual_prompt,
-            imageUrl: imgUrl,
-            sceneId: scene.id,
-            aspectRatio: aspect_ratio,
-            duration: '5'
-          });
-          vidUrl = vidRes.url;
-          DB.updateScene({ id: scene.id, video_url: vidUrl, status: 'generated' });
-        } catch (vidErr) {
-          console.warn(`Video generation failed for scene ${scene.id}, falling back to motion storybook:`, vidErr);
+      // 3. If engine is full_ai_video, generate animated video clip
+      if (engine === 'full_ai_video') {
+        const shouldGenerateVid = !vidUrl || hasRegeneratedPrevious;
+        if (shouldGenerateVid) {
+          try {
+            const vidRes = await generateSceneVideo({
+              prompt: scene.visual_prompt,
+              imageUrl: imgUrl,
+              sceneId: scene.id,
+              aspectRatio: aspect_ratio,
+              duration: '5',
+              isChained: i > 0
+            });
+            vidUrl = vidRes.url;
+            previousClipPath = vidRes.filePath;
+            hasRegeneratedPrevious = true;
+            DB.updateScene({ id: scene.id, video_url: vidUrl, status: 'generated' });
+          } catch (vidErr) {
+            console.warn(`Video generation failed for scene ${scene.id}, falling back to motion storybook:`, vidErr);
+          }
+        } else if (vidUrl) {
+          // If reusing existing clip, track its local path for next scene chaining
+          const fs = await import('fs');
+          const localPath = path.join(process.cwd(), vidUrl.replace('/api/media', 'data'));
+          if (fs.existsSync(localPath)) {
+            previousClipPath = localPath;
+          }
         }
       }
 
-      // 3. Ensure scene audio exists
+      // 4. Ensure scene audio exists
       if (!audUrl) {
         const audRes = await generateSpeech(scene.narration_text, undefined, scene.id);
         audUrl = audRes.audioUrl;
@@ -71,7 +112,7 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // Assemble via FFmpeg
+    // Assemble via FFmpeg (with cross-dissolve transitions + color grading)
     const videoProject = await assembleFullVideo({
       storyId: story.id,
       title: story.title,

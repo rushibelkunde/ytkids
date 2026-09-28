@@ -42,12 +42,12 @@ function StoriesPageContent() {
 
   // Form State
   const [prompt, setPrompt] = useState(STARTER_PROMPTS[0].prompt);
-  const [niche, setNiche] = useState<ContentNiche>('moral_story');
-  const [ageGroup, setAgeGroup] = useState<TargetAgeGroup>('early');
+  const [niche, setNiche] = useState<ContentNiche>('slapstick_comedy');
+  const [ageGroup, setAgeGroup] = useState<TargetAgeGroup>('toddler');
   const [style, setStyle] = useState<VisualStyle>('3d_pixar');
   const [language, setLanguage] = useState('English');
   const [selectedCharIds, setSelectedCharIds] = useState<string[]>([]);
-  const [sceneCount, setSceneCount] = useState(5);
+  const [sceneCount, setSceneCount] = useState(3);
 
   const fetchData = async () => {
     try {

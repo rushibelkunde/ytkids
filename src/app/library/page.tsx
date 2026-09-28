@@ -129,7 +129,8 @@ function LibraryContent() {
         if (data.url) setUploadedUrl(data.url);
         fetchVideos();
       } else if (data.needsAuth && data.authUrl) {
-        if (confirm('Your YouTube channel needs authorization before uploading. Click OK to open Google Authorization.')) {
+        fetchStatus();
+        if (confirm('Your YouTube channel authorization has expired or needs linking. Click OK to authorize with Google now.')) {
           window.location.href = data.authUrl;
         }
       } else {
@@ -259,14 +260,26 @@ function LibraryContent() {
                   </div>
 
                   {youtubeStatus?.isConnected ? (
-                    <span className="badge badge-emerald" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <Check size={12} />
-                      <span>{youtubeStatus.channelTitle || 'Connected'}</span>
-                    </span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span className="badge badge-emerald" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <Check size={12} />
+                        <span>{youtubeStatus.channelTitle || 'Connected'}</span>
+                      </span>
+                      {youtubeStatus.authUrl && (
+                        <a 
+                          href={youtubeStatus.authUrl} 
+                          className="btn btn-secondary" 
+                          style={{ fontSize: '0.72rem', padding: '4px 8px' }}
+                          title="Reconnect or switch YouTube account"
+                        >
+                          Reconnect
+                        </a>
+                      )}
+                    </div>
                   ) : youtubeStatus?.hasClientId ? (
-                    <a href={youtubeStatus.authUrl} className="btn btn-primary" style={{ fontSize: '0.78rem', padding: '6px 12px' }}>
+                    <a href={youtubeStatus.authUrl} className="btn btn-primary" style={{ fontSize: '0.8rem', padding: '6px 14px' }}>
                       <YoutubeIcon size={14} />
-                      <span>Authorize Channel</span>
+                      <span>Authorize YouTube Channel</span>
                     </a>
                   ) : null}
                 </div>
